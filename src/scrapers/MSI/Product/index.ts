@@ -130,6 +130,10 @@ export const buildProduct = async (page: Page): Promise<Product> => {
 
   const description = await getElementText(productTitle.locator('xpath=following::p[1]'));
   const priceText = await getElementText(page.locator('#prices-new'));
+  const oldPriceText = await getElementText(page.locator('#prices-old'));
+  const currentPrice = getPriceFromText(priceText);
+  const oldPrice = getPriceFromText(oldPriceText);
+  const hasDiscount = oldPrice !== null && currentPrice !== null && currentPrice < oldPrice;
   const availability = await getAvailability(page);
 
   const categoryTree = await getCategoryTree(page, title);
@@ -153,8 +157,8 @@ export const buildProduct = async (page: Page): Promise<Product> => {
     product_category: categoryTree.map(({ name }) => name).join(' > ') || null,
     category_tree: categoryTree,
     description,
-    price: getPriceFromText(priceText),
-    sale_price: null,
+    price: oldPrice ?? currentPrice,
+    sale_price: hasDiscount ? currentPrice : null,
     availability,
     image_url: imageUrls[0] ?? null,
     additional_image_urls: imageUrls.slice(1),
