@@ -11,9 +11,6 @@ export const getCleanText = (value: unknown): string | null => {
   return text || null;
 };
 
-export const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
 export const getNumber = (value: unknown): number | null => {
   if (typeof value !== 'number' && typeof value !== 'string') {
     return null;
@@ -26,27 +23,6 @@ export const getNumber = (value: unknown): number | null => {
   const number = Number(value);
 
   return Number.isFinite(number) ? number : null;
-};
-
-export const findProductData = (data: unknown): Record<string, unknown> | null => {
-  if (Array.isArray(data)) {
-    const products = data.map(findProductData);
-
-    return products.find(product => product !== null) ?? null;
-  }
-
-  if (!isObject(data)) {
-    return null;
-  }
-
-  const type = data['@type'];
-
-  if (type === 'Product' || (Array.isArray(type) && type.includes('Product'))) {
-    return data;
-  }
-
-  // Some pages group their structured data inside an `@graph` array
-  return findProductData(data['@graph']);
 };
 
 export const getPriceFromText = (value: string | null | undefined): number | null => {

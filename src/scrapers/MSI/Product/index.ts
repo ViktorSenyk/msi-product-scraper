@@ -1,16 +1,12 @@
-import { chromium } from 'playwright';
+import { chromium, errors } from 'playwright';
 import {
-  findProductData,
   getCleanText,
   getNumber,
   getPriceFromText,
-  isObject,
 } from '@scrapers/MSI/Product/utils';
 import { Availability } from '@entities/MSI/Product';
 import type { CategoryItem, Product, SpecItem } from '@entities/MSI/Product';
 import type { Locator, Page } from 'playwright';
-
-type StructuredProductData = Record<string, unknown>;
 
 const TARGET_URL =
   'https://us-store.msi.com/Motherboards/Intel-Platform-Motherboard/INTEL-Z890/MAG-Z890-TOMAHAWK-WIFI';
@@ -32,7 +28,7 @@ const getElementText = async (locator: Locator): Promise<string | null> => {
 };
 
 const getAvailability = async (page: Page): Promise<Availability | null> => {
-  const elementTexts = await page.locator('body *').allTextContents();
+  const elementTexts = await page.locator('#prices-new ~ span').allTextContents();
   const statuses = elementTexts.map(value => {
     const text = getCleanText(value)?.toLowerCase() ?? '';
 
@@ -40,21 +36,6 @@ const getAvailability = async (page: Page): Promise<Availability | null> => {
   });
 
   return statuses.find(status => status !== undefined) ?? null;
-};
-
-const getStructuredProductData = async (page: Page): Promise<StructuredProductData | null> => {
-  const scripts = await page.locator('script[type="application/ld+json"]').allTextContents();
-
-  const products = scripts.map(script => {
-    try {
-      return findProductData(JSON.parse(script));
-    } catch {
-      // Skip scripts containing invalid JSON
-      return null;
-    }
-  });
-
-  return products.find(product => product !== null) ?? null;
 };
 
 const getCategoryTree = async (page: Page, productTitle: string): Promise<CategoryItem[]> => {
@@ -87,21 +68,10 @@ const getCategoryTree = async (page: Page, productTitle: string): Promise<Catego
   });
 };
 
-const getProductImages = async (page: Page, productTitle: string): Promise<string[]> => {
-  const images = await page.locator('img').evaluateAll(elements =>
-    elements.flatMap(element => {
-      if (!(element instanceof HTMLImageElement)) {
-        return [];
-      }
-
-      return [{ alt: element.alt, url: element.currentSrc || element.src }];
-    }),
+const getProductImages = async (page: Page): Promise<string[]> => {
+  const imageUrls = await page.locator('#imagePopup, .product-detail-thumb-bto').evaluateAll(images =>
+    images.map(image => image.getAttribute('src') ?? '').filter(Boolean),
   );
-  const title = productTitle.toLowerCase();
-  const imageUrls = images
-    .filter(image => image.alt.toLowerCase().includes(title))
-    .map(image => image.url)
-    .filter(Boolean);
 
   return [...new Set(imageUrls)];
 };
@@ -124,29 +94,29 @@ const getSpecs = async (page: Page): Promise<SpecItem[]> => {
   });
 };
 
-const getBrand = (productData: StructuredProductData | null): string | null => {
-  const brand = productData?.brand;
-
-  if (isObject(brand)) {
-    return getCleanText(brand.name);
+const getRating = async (page: Page) => {
+  try {
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll('#average-rating-info')).some(element => {
+        const text = element.textContent ?? '';
+        return text.includes('(') && text.includes(')');
+      }),
+      null,
+      { timeout: 10_000 },
+    );
+  } catch (error) {
+    if (!(error instanceof errors.TimeoutError)) {
+      throw error;
+    }
   }
 
-  return getCleanText(brand);
-};
-
-const getRating = async (
-  page: Page,
-  productData: StructuredProductData | null,
-) => {
-  const text = await getElementText(page.locator('#average-rating-info').first());
+  const texts = await page.locator('#average-rating-info').allTextContents();
+  const text = texts.find(value => value.includes('(') && value.includes(')'));
   const [ratingText, reviewCountText] = text?.split('(') ?? [];
-  const structuredRating = productData?.aggregateRating;
-  const fallback = isObject(structuredRating) ? structuredRating : {};
 
   return {
-    star_rating: getNumber(ratingText) ?? getNumber(fallback.ratingValue),
-    review_count:
-      getNumber(reviewCountText?.replace(')', '')) ?? getNumber(fallback.reviewCount),
+    star_rating: getNumber(ratingText),
+    review_count: getNumber(reviewCountText?.replace(')', '')),
   };
 };
 
@@ -159,19 +129,16 @@ export const buildProduct = async (page: Page): Promise<Product> => {
   }
 
   const description = await getElementText(productTitle.locator('xpath=following::p[1]'));
-  const priceText = await getElementText(
-    page.locator('[class*="price" i]').filter({ visible: true }).first(),
-  );
+  const priceText = await getElementText(page.locator('#prices-new'));
   const availability = await getAvailability(page);
 
   const categoryTree = await getCategoryTree(page, title);
-  const imageUrls = await getProductImages(page, title);
+  const imageUrls = await getProductImages(page);
   const specs = await getSpecs(page);
-  const productData = await getStructuredProductData(page);
   const productId = await page.locator('input[name="product_id"]').evaluateAll(inputs =>
     inputs[0]?.getAttribute('value') ?? null,
   );
-  const rating = await getRating(page, productData);
+  const rating = await getRating(page);
   const manufacturerNumber = specs.find(({ name }) => {
     const label = name.toLowerCase();
 
@@ -180,10 +147,9 @@ export const buildProduct = async (page: Page): Promise<Product> => {
 
   return {
     url: page.url(),
-    item_id:
-      getCleanText(productData?.sku) ?? getCleanText(productData?.productID) ?? getCleanText(productId),
+    item_id: getCleanText(productId),
     title,
-    brand: getBrand(productData) ?? 'MSI',
+    brand: 'MSI',
     product_category: categoryTree.map(({ name }) => name).join(' > ') || null,
     category_tree: categoryTree,
     description,
@@ -195,11 +161,8 @@ export const buildProduct = async (page: Page): Promise<Product> => {
     specs,
     star_rating: rating.star_rating,
     review_count: rating.review_count,
-    gtin:
-      getCleanText(productData?.gtin) ??
-      getCleanText(productData?.gtin13) ??
-      getCleanText(productData?.gtin12),
-    mpn: getCleanText(productData?.mpn) ?? manufacturerNumber ?? null,
+    gtin: null,
+    mpn: manufacturerNumber ?? null,
     scraped_at: new Date().toISOString(),
   };
 };
