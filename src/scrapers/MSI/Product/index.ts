@@ -168,6 +168,9 @@ export const buildProduct = async (page: Page): Promise<Product> => {
   const imageUrls = await getProductImages(page, title);
   const specs = await getSpecs(page);
   const productData = await getStructuredProductData(page);
+  const productId = await page.locator('input[name="product_id"]').evaluateAll(inputs =>
+    inputs[0]?.getAttribute('value') ?? null,
+  );
   const rating = await getRating(page, productData);
   const manufacturerNumber = specs.find(({ name }) => {
     const label = name.toLowerCase();
@@ -177,7 +180,8 @@ export const buildProduct = async (page: Page): Promise<Product> => {
 
   return {
     url: page.url(),
-    item_id: getCleanText(productData?.sku) ?? getCleanText(productData?.productID),
+    item_id:
+      getCleanText(productData?.sku) ?? getCleanText(productData?.productID) ?? getCleanText(productId),
     title,
     brand: getBrand(productData) ?? 'MSI',
     product_category: categoryTree.map(({ name }) => name).join(' > ') || null,
