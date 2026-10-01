@@ -130,9 +130,9 @@
       "value": "3 Year"
     }
   ],
-  "star_rating": null,
-  "review_count": null,
+  "star_rating": 4.7,
+  "review_count": 3,
   "gtin": null,
   "mpn": "MAG Z890 TOMAHAWK WIFI",
-  "scraped_at": "2026-10-01T16:20:22.880Z"
+  "scraped_at": "2026-10-01T16:48:53.080Z"
 }

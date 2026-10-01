@@ -134,17 +134,20 @@ const getBrand = (productData: StructuredProductData | null): string | null => {
   return getCleanText(brand);
 };
 
-const getRating = (
+const getRating = async (
+  page: Page,
   productData: StructuredProductData | null,
-  key: 'ratingValue' | 'reviewCount',
-): number | null => {
-  const rating = productData?.aggregateRating;
+) => {
+  const text = await getElementText(page.locator('#average-rating-info').first());
+  const [ratingText, reviewCountText] = text?.split('(') ?? [];
+  const structuredRating = productData?.aggregateRating;
+  const fallback = isObject(structuredRating) ? structuredRating : {};
 
-  if (!isObject(rating)) {
-    return null;
-  }
-
-  return getNumber(rating[key]);
+  return {
+    star_rating: getNumber(ratingText) ?? getNumber(fallback.ratingValue),
+    review_count:
+      getNumber(reviewCountText?.replace(')', '')) ?? getNumber(fallback.reviewCount),
+  };
 };
 
 export const buildProduct = async (page: Page): Promise<Product> => {
@@ -165,6 +168,7 @@ export const buildProduct = async (page: Page): Promise<Product> => {
   const imageUrls = await getProductImages(page, title);
   const specs = await getSpecs(page);
   const productData = await getStructuredProductData(page);
+  const rating = await getRating(page, productData);
   const manufacturerNumber = specs.find(({ name }) => {
     const label = name.toLowerCase();
 
@@ -185,8 +189,8 @@ export const buildProduct = async (page: Page): Promise<Product> => {
     image_url: imageUrls[0] ?? null,
     additional_image_urls: imageUrls.slice(1),
     specs,
-    star_rating: getRating(productData, 'ratingValue'),
-    review_count: getRating(productData, 'reviewCount'),
+    star_rating: rating.star_rating,
+    review_count: rating.review_count,
     gtin:
       getCleanText(productData?.gtin) ??
       getCleanText(productData?.gtin13) ??
